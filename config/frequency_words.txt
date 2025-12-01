@@ -1,12 +1,12 @@
 黄金
 白银
-+涨跌
+
 
 A股
 上证
 深证
 港股
-+涨跌
+
 
 胖东来
 于东来
@@ -66,7 +66,6 @@ AMD
 谷歌
 google
 gemini
-deepmind
 
 chatgpt
 openai
