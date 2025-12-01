@@ -20,7 +20,7 @@ import requests
 import yaml
 
 
-VERSION = "3.4.0"
+VERSION = "3.4.1"
 
 
 # === SMTP邮件配置 ===
@@ -436,34 +436,34 @@ class PushRecordManager:
         """检查当前时间是否在指定时间范围内"""
         now = get_beijing_time()
         current_time = now.strftime("%H:%M")
-    
+
         def normalize_time(time_str: str) -> str:
             """将时间字符串标准化为 HH:MM 格式"""
             try:
                 parts = time_str.strip().split(":")
                 if len(parts) != 2:
                     raise ValueError(f"时间格式错误: {time_str}")
-            
+
                 hour = int(parts[0])
                 minute = int(parts[1])
-            
+
                 if not (0 <= hour <= 23 and 0 <= minute <= 59):
                     raise ValueError(f"时间范围错误: {time_str}")
-            
+
                 return f"{hour:02d}:{minute:02d}"
             except Exception as e:
                 print(f"时间格式化错误 '{time_str}': {e}")
                 return time_str
-    
+
         normalized_start = normalize_time(start_time)
         normalized_end = normalize_time(end_time)
         normalized_current = normalize_time(current_time)
-    
+
         result = normalized_start <= normalized_current <= normalized_end
-    
+
         if not result:
             print(f"时间窗口判断：当前 {normalized_current}，窗口 {normalized_start}-{normalized_end}")
-    
+
         return result
 
 
@@ -1071,6 +1071,9 @@ def format_rank_display(ranks: List[int], rank_threshold: int, format_type: str)
     elif format_type == "telegram":
         highlight_start = "<b>"
         highlight_end = "</b>"
+    elif format_type == "slack":
+        highlight_start = "*"
+        highlight_end = "*"
     else:
         highlight_start = "**"
         highlight_end = "**"
@@ -1576,7 +1579,8 @@ def format_title_for_platform(
 
         return result
 
-    elif platform == "wework":
+    elif platform in ("wework", "bark"):
+        # WeWork 和 Bark 使用 markdown 格式
         if link_url:
             formatted_title = f"[{cleaned_title}]({link_url})"
         else:
@@ -1633,6 +1637,34 @@ def format_title_for_platform(
         else:
             result = f"{title_prefix}{formatted_title}"
 
+        if rank_display:
+            result += f" {rank_display}"
+        if title_data["time_display"]:
+            result += f" `- {title_data['time_display']}`"
+        if title_data["count"] > 1:
+            result += f" `({title_data['count']}次)`"
+
+        return result
+
+    elif platform == "slack":
+        # Slack 使用 mrkdwn 格式
+        if link_url:
+            # Slack 链接格式: <url|text>
+            formatted_title = f"<{link_url}|{cleaned_title}>"
+        else:
+            formatted_title = cleaned_title
+
+        title_prefix = "🆕 " if title_data.get("is_new") else ""
+
+        if show_source:
+            result = f"[{title_data['source_name']}] {title_prefix}{formatted_title}"
+        else:
+            result = f"{title_prefix}{formatted_title}"
+
+        # 排名（使用 * 加粗）
+        rank_display = format_rank_display(
+            title_data["ranks"], title_data["rank_threshold"], "slack"
+        )
         if rank_display:
             result += f" {rank_display}"
         if title_data["time_display"]:
@@ -1735,15 +1767,15 @@ def render_html_content(
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
         <style>
             * { box-sizing: border-box; }
-            body { 
+            body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-                margin: 0; 
-                padding: 16px; 
+                margin: 0;
+                padding: 16px;
                 background: #fafafa;
                 color: #333;
                 line-height: 1.5;
             }
-            
+
             .container {
                 max-width: 600px;
                 margin: 0 auto;
@@ -1752,7 +1784,7 @@ def render_html_content(
                 overflow: hidden;
                 box-shadow: 0 2px 16px rgba(0,0,0,0.06);
             }
-            
+
             .header {
                 background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
                 color: white;
@@ -1760,7 +1792,7 @@ def render_html_content(
                 text-align: center;
                 position: relative;
             }
-            
+
             .save-buttons {
                 position: absolute;
                 top: 16px;
@@ -1768,7 +1800,7 @@ def render_html_content(
                 display: flex;
                 gap: 8px;
             }
-            
+
             .save-btn {
                 background: rgba(255, 255, 255, 0.2);
                 border: 1px solid rgba(255, 255, 255, 0.3);
@@ -1782,28 +1814,28 @@ def render_html_content(
                 backdrop-filter: blur(10px);
                 white-space: nowrap;
             }
-            
+
             .save-btn:hover {
                 background: rgba(255, 255, 255, 0.3);
                 border-color: rgba(255, 255, 255, 0.5);
                 transform: translateY(-1px);
             }
-            
+
             .save-btn:active {
                 transform: translateY(0);
             }
-            
+
             .save-btn:disabled {
                 opacity: 0.6;
                 cursor: not-allowed;
             }
-            
+
             .header-title {
                 font-size: 22px;
                 font-weight: 700;
                 margin: 0 0 20px 0;
             }
-            
+
             .header-info {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
@@ -1811,35 +1843,35 @@ def render_html_content(
                 font-size: 14px;
                 opacity: 0.95;
             }
-            
+
             .info-item {
                 text-align: center;
             }
-            
+
             .info-label {
                 display: block;
                 font-size: 12px;
                 opacity: 0.8;
                 margin-bottom: 4px;
             }
-            
+
             .info-value {
                 font-weight: 600;
                 font-size: 16px;
             }
-            
+
             .content {
                 padding: 24px;
             }
-            
+
             .word-group {
                 margin-bottom: 40px;
             }
-            
+
             .word-group:first-child {
                 margin-top: 0;
             }
-            
+
             .word-header {
                 display: flex;
                 align-items: center;
@@ -1848,33 +1880,33 @@ def render_html_content(
                 padding-bottom: 8px;
                 border-bottom: 1px solid #f0f0f0;
             }
-            
+
             .word-info {
                 display: flex;
                 align-items: center;
                 gap: 12px;
             }
-            
+
             .word-name {
                 font-size: 17px;
                 font-weight: 600;
                 color: #1a1a1a;
             }
-            
+
             .word-count {
                 color: #666;
                 font-size: 13px;
                 font-weight: 500;
             }
-            
+
             .word-count.hot { color: #dc2626; font-weight: 600; }
             .word-count.warm { color: #ea580c; font-weight: 600; }
-            
+
             .word-index {
                 color: #999;
                 font-size: 12px;
             }
-            
+
             .news-item {
                 margin-bottom: 20px;
                 padding: 16px 0;
@@ -1884,11 +1916,11 @@ def render_html_content(
                 gap: 12px;
                 align-items: center;
             }
-            
+
             .news-item:last-child {
                 border-bottom: none;
             }
-            
+
             .news-item.new::after {
                 content: "NEW";
                 position: absolute;
@@ -1902,7 +1934,7 @@ def render_html_content(
                 border-radius: 4px;
                 letter-spacing: 0.5px;
             }
-            
+
             .news-number {
                 color: #999;
                 font-size: 13px;
@@ -1920,17 +1952,17 @@ def render_html_content(
                 align-self: flex-start;
                 margin-top: 8px;
             }
-            
+
             .news-content {
                 flex: 1;
                 min-width: 0;
                 padding-right: 40px;
             }
-            
+
             .news-item.new .news-content {
                 padding-right: 50px;
             }
-            
+
             .news-header {
                 display: flex;
                 align-items: center;
@@ -1938,13 +1970,13 @@ def render_html_content(
                 margin-bottom: 8px;
                 flex-wrap: wrap;
             }
-            
+
             .source-name {
                 color: #666;
                 font-size: 12px;
                 font-weight: 500;
             }
-            
+
             .rank-num {
                 color: #fff;
                 background: #6b7280;
@@ -1955,58 +1987,58 @@ def render_html_content(
                 min-width: 18px;
                 text-align: center;
             }
-            
+
             .rank-num.top { background: #dc2626; }
             .rank-num.high { background: #ea580c; }
-            
+
             .time-info {
                 color: #999;
                 font-size: 11px;
             }
-            
+
             .count-info {
                 color: #059669;
                 font-size: 11px;
                 font-weight: 500;
             }
-            
+
             .news-title {
                 font-size: 15px;
                 line-height: 1.4;
                 color: #1a1a1a;
                 margin: 0;
             }
-            
+
             .news-link {
                 color: #2563eb;
                 text-decoration: none;
             }
-            
+
             .news-link:hover {
                 text-decoration: underline;
             }
-            
+
             .news-link:visited {
                 color: #7c3aed;
             }
-            
+
             .new-section {
                 margin-top: 40px;
                 padding-top: 24px;
                 border-top: 2px solid #f0f0f0;
             }
-            
+
             .new-section-title {
                 color: #1a1a1a;
                 font-size: 16px;
                 font-weight: 600;
                 margin: 0 0 20px 0;
             }
-            
+
             .new-source-group {
                 margin-bottom: 24px;
             }
-            
+
             .new-source-title {
                 color: #666;
                 font-size: 13px;
@@ -2015,7 +2047,7 @@ def render_html_content(
                 padding-bottom: 6px;
                 border-bottom: 1px solid #f5f5f5;
             }
-            
+
             .new-item {
                 display: flex;
                 align-items: center;
@@ -2023,11 +2055,11 @@ def render_html_content(
                 padding: 8px 0;
                 border-bottom: 1px solid #f9f9f9;
             }
-            
+
             .new-item:last-child {
                 border-bottom: none;
             }
-            
+
             .new-item-number {
                 color: #999;
                 font-size: 12px;
@@ -2043,7 +2075,7 @@ def render_html_content(
                 align-items: center;
                 justify-content: center;
             }
-            
+
             .new-item-rank {
                 color: #fff;
                 background: #6b7280;
@@ -2055,22 +2087,22 @@ def render_html_content(
                 text-align: center;
                 flex-shrink: 0;
             }
-            
+
             .new-item-rank.top { background: #dc2626; }
             .new-item-rank.high { background: #ea580c; }
-            
+
             .new-item-content {
                 flex: 1;
                 min-width: 0;
             }
-            
+
             .new-item-title {
                 font-size: 14px;
                 line-height: 1.4;
                 color: #1a1a1a;
                 margin: 0;
             }
-            
+
             .error-section {
                 background: #fef2f2;
                 border: 1px solid #fecaca;
@@ -2078,27 +2110,27 @@ def render_html_content(
                 padding: 16px;
                 margin-bottom: 24px;
             }
-            
+
             .error-title {
                 color: #dc2626;
                 font-size: 14px;
                 font-weight: 600;
                 margin: 0 0 8px 0;
             }
-            
+
             .error-list {
                 list-style: none;
                 padding: 0;
                 margin: 0;
             }
-            
+
             .error-item {
                 color: #991b1b;
                 font-size: 13px;
                 padding: 2px 0;
                 font-family: 'SF Mono', Consolas, monospace;
             }
-            
+
             .footer {
                 margin-top: 32px;
                 padding: 20px 24px;
@@ -2106,30 +2138,30 @@ def render_html_content(
                 border-top: 1px solid #e5e7eb;
                 text-align: center;
             }
-            
+
             .footer-content {
                 font-size: 13px;
                 color: #6b7280;
                 line-height: 1.6;
             }
-            
+
             .footer-link {
                 color: #4f46e5;
                 text-decoration: none;
                 font-weight: 500;
                 transition: color 0.2s ease;
             }
-            
+
             .footer-link:hover {
                 color: #7c3aed;
                 text-decoration: underline;
             }
-            
+
             .project-name {
                 font-weight: 600;
                 color: #374151;
             }
-            
+
             @media (max-width: 480px) {
                 body { padding: 12px; }
                 .header { padding: 24px 20px; }
@@ -2212,7 +2244,7 @@ def render_html_content(
                     </div>
                 </div>
             </div>
-            
+
             <div class="content">"""
 
     # 处理失败ID错误信息
@@ -2392,10 +2424,10 @@ def render_html_content(
 
     html += """
             </div>
-            
+
             <div class="footer">
                 <div class="footer-content">
-                    由 <span class="project-name">TrendRadar</span> 生成 · 
+                    由 <span class="project-name">TrendRadar</span> 生成 ·
                     <a href="https://github.com/sansan0/TrendRadar" target="_blank" class="footer-link">
                         GitHub 开源项目
                     </a>"""
@@ -2411,29 +2443,29 @@ def render_html_content(
                 </div>
             </div>
         </div>
-        
+
         <script>
             async function saveAsImage() {
                 const button = event.target;
                 const originalText = button.textContent;
-                
+
                 try {
                     button.textContent = '生成中...';
                     button.disabled = true;
                     window.scrollTo(0, 0);
-                    
+
                     // 等待页面稳定
                     await new Promise(resolve => setTimeout(resolve, 200));
-                    
+
                     // 截图前隐藏按钮
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'hidden';
-                    
+
                     // 再次等待确保按钮完全隐藏
                     await new Promise(resolve => setTimeout(resolve, 100));
-                    
+
                     const container = document.querySelector('.container');
-                    
+
                     const canvas = await html2canvas(container, {
                         backgroundColor: '#ffffff',
                         scale: 1.5,
@@ -2452,27 +2484,27 @@ def render_html_content(
                         windowWidth: window.innerWidth,
                         windowHeight: window.innerHeight
                     });
-                    
+
                     buttons.style.visibility = 'visible';
-                    
+
                     const link = document.createElement('a');
                     const now = new Date();
                     const filename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.png`;
-                    
+
                     link.download = filename;
                     link.href = canvas.toDataURL('image/png', 1.0);
-                    
+
                     // 触发下载
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                    
+
                     button.textContent = '保存成功!';
                     setTimeout(() => {
                         button.textContent = originalText;
                         button.disabled = false;
                     }, 2000);
-                    
+
                 } catch (error) {
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'visible';
@@ -2483,18 +2515,18 @@ def render_html_content(
                     }, 2000);
                 }
             }
-            
+
             async function saveAsMultipleImages() {
                 const button = event.target;
                 const originalText = button.textContent;
                 const container = document.querySelector('.container');
-                const scale = 1.5; 
+                const scale = 1.5;
                 const maxHeight = 5000 / scale;
-                
+
                 try {
                     button.textContent = '分析中...';
                     button.disabled = true;
-                    
+
                     // 获取所有可能的分割元素
                     const newsItems = Array.from(container.querySelectorAll('.news-item'));
                     const wordGroups = Array.from(container.querySelectorAll('.word-group'));
@@ -2502,11 +2534,11 @@ def render_html_content(
                     const errorSection = container.querySelector('.error-section');
                     const header = container.querySelector('.header');
                     const footer = container.querySelector('.footer');
-                    
+
                     // 计算元素位置和高度
                     const containerRect = container.getBoundingClientRect();
                     const elements = [];
-                    
+
                     // 添加header作为必须包含的元素
                     elements.push({
                         type: 'header',
@@ -2515,7 +2547,7 @@ def render_html_content(
                         bottom: header.offsetHeight,
                         height: header.offsetHeight
                     });
-                    
+
                     // 添加错误信息（如果存在）
                     if (errorSection) {
                         const rect = errorSection.getBoundingClientRect();
@@ -2527,12 +2559,12 @@ def render_html_content(
                             height: rect.height
                         });
                     }
-                    
+
                     // 按word-group分组处理news-item
                     wordGroups.forEach(group => {
                         const groupRect = group.getBoundingClientRect();
                         const groupNewsItems = group.querySelectorAll('.news-item');
-                        
+
                         // 添加word-group的header部分
                         const wordHeader = group.querySelector('.word-header');
                         if (wordHeader) {
@@ -2546,7 +2578,7 @@ def render_html_content(
                                 height: headerRect.height
                             });
                         }
-                        
+
                         // 添加每个news-item
                         groupNewsItems.forEach(item => {
                             const rect = item.getBoundingClientRect();
@@ -2560,7 +2592,7 @@ def render_html_content(
                             });
                         });
                     });
-                    
+
                     // 添加新增新闻部分
                     if (newSection) {
                         const rect = newSection.getBoundingClientRect();
@@ -2572,7 +2604,7 @@ def render_html_content(
                             height: rect.height
                         });
                     }
-                    
+
                     // 添加footer
                     const footerRect = footer.getBoundingClientRect();
                     elements.push({
@@ -2582,23 +2614,23 @@ def render_html_content(
                         bottom: footerRect.bottom - containerRect.top,
                         height: footer.offsetHeight
                     });
-                    
+
                     // 计算分割点
                     const segments = [];
                     let currentSegment = { start: 0, end: 0, height: 0, includeHeader: true };
                     let headerHeight = header.offsetHeight;
                     currentSegment.height = headerHeight;
-                    
+
                     for (let i = 1; i < elements.length; i++) {
                         const element = elements[i];
                         const potentialHeight = element.bottom - currentSegment.start;
-                        
+
                         // 检查是否需要创建新分段
                         if (potentialHeight > maxHeight && currentSegment.height > headerHeight) {
                             // 在前一个元素结束处分割
                             currentSegment.end = elements[i - 1].bottom;
                             segments.push(currentSegment);
-                            
+
                             // 开始新分段
                             currentSegment = {
                                 start: currentSegment.end,
@@ -2611,25 +2643,25 @@ def render_html_content(
                             currentSegment.end = element.bottom;
                         }
                     }
-                    
+
                     // 添加最后一个分段
                     if (currentSegment.height > 0) {
                         currentSegment.end = container.offsetHeight;
                         segments.push(currentSegment);
                     }
-                    
+
                     button.textContent = `生成中 (0/${segments.length})...`;
-                    
+
                     // 隐藏保存按钮
                     const buttons = document.querySelector('.save-buttons');
                     buttons.style.visibility = 'hidden';
-                    
+
                     // 为每个分段生成图片
                     const images = [];
                     for (let i = 0; i < segments.length; i++) {
                         const segment = segments[i];
                         button.textContent = `生成中 (${i + 1}/${segments.length})...`;
-                        
+
                         // 创建临时容器用于截图
                         const tempContainer = document.createElement('div');
                         tempContainer.style.cssText = `
@@ -2640,22 +2672,22 @@ def render_html_content(
                             background: white;
                         `;
                         tempContainer.className = 'container';
-                        
+
                         // 克隆容器内容
                         const clonedContainer = container.cloneNode(true);
-                        
+
                         // 移除克隆内容中的保存按钮
                         const clonedButtons = clonedContainer.querySelector('.save-buttons');
                         if (clonedButtons) {
                             clonedButtons.style.display = 'none';
                         }
-                        
+
                         tempContainer.appendChild(clonedContainer);
                         document.body.appendChild(tempContainer);
-                        
+
                         // 等待DOM更新
                         await new Promise(resolve => setTimeout(resolve, 100));
-                        
+
                         // 使用html2canvas截取特定区域
                         const canvas = await html2canvas(clonedContainer, {
                             backgroundColor: '#ffffff',
@@ -2671,20 +2703,20 @@ def render_html_content(
                             windowWidth: window.innerWidth,
                             windowHeight: window.innerHeight
                         });
-                        
+
                         images.push(canvas.toDataURL('image/png', 1.0));
-                        
+
                         // 清理临时容器
                         document.body.removeChild(tempContainer);
                     }
-                    
+
                     // 恢复按钮显示
                     buttons.style.visibility = 'visible';
-                    
+
                     // 下载所有图片
                     const now = new Date();
                     const baseFilename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-                    
+
                     for (let i = 0; i < images.length; i++) {
                         const link = document.createElement('a');
                         link.download = `${baseFilename}_part${i + 1}.png`;
@@ -2692,17 +2724,17 @@ def render_html_content(
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
-                        
+
                         // 延迟一下避免浏览器阻止多个下载
                         await new Promise(resolve => setTimeout(resolve, 100));
                     }
-                    
+
                     button.textContent = `已保存 ${segments.length} 张图片!`;
                     setTimeout(() => {
                         button.textContent = originalText;
                         button.disabled = false;
                     }, 2000);
-                    
+
                 } catch (error) {
                     console.error('分段保存失败:', error);
                     const buttons = document.querySelector('.save-buttons');
@@ -2714,7 +2746,7 @@ def render_html_content(
                     }, 2000);
                 }
             }
-            
+
             document.addEventListener('DOMContentLoaded', function() {
                 window.scrollTo(0, 0);
             });
@@ -2906,6 +2938,90 @@ def render_dingtalk_content(
     return text_content
 
 
+def _get_batch_header(format_type: str, batch_num: int, total_batches: int) -> str:
+    """根据 format_type 生成对应格式的批次头部"""
+    if format_type == "telegram":
+        return f"<b>[第 {batch_num}/{total_batches} 批次]</b>\n\n"
+    elif format_type == "slack":
+        return f"*[第 {batch_num}/{total_batches} 批次]*\n\n"
+    elif format_type in ("wework_text", "bark"):
+        # 企业微信文本模式和 Bark 使用纯文本格式
+        return f"[第 {batch_num}/{total_batches} 批次]\n\n"
+    else:
+        # 飞书、钉钉、ntfy、企业微信 markdown 模式
+        return f"**[第 {batch_num}/{total_batches} 批次]**\n\n"
+
+
+def _get_max_batch_header_size(format_type: str) -> int:
+    """估算批次头部的最大字节数（假设最多 99 批次）
+
+    用于在分批时预留空间，避免事后截断破坏内容完整性。
+    """
+    # 生成最坏情况的头部（99/99 批次）
+    max_header = _get_batch_header(format_type, 99, 99)
+    return len(max_header.encode("utf-8"))
+
+
+def _truncate_to_bytes(text: str, max_bytes: int) -> str:
+    """安全截断字符串到指定字节数，避免截断多字节字符"""
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) <= max_bytes:
+        return text
+
+    # 截断到指定字节数
+    truncated = text_bytes[:max_bytes]
+
+    # 处理可能的不完整 UTF-8 字符
+    for i in range(min(4, len(truncated))):
+        try:
+            return truncated[: len(truncated) - i].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+
+    # 极端情况：返回空字符串
+    return ""
+
+
+def add_batch_headers(
+    batches: List[str], format_type: str, max_bytes: int
+) -> List[str]:
+    """为批次添加头部，动态计算确保总大小不超过限制
+
+    Args:
+        batches: 原始批次列表
+        format_type: 推送类型（bark, telegram, feishu 等）
+        max_bytes: 该推送类型的最大字节限制
+
+    Returns:
+        添加头部后的批次列表
+    """
+    if len(batches) <= 1:
+        return batches
+
+    total = len(batches)
+    result = []
+
+    for i, content in enumerate(batches, 1):
+        # 生成批次头部
+        header = _get_batch_header(format_type, i, total)
+        header_size = len(header.encode("utf-8"))
+
+        # 动态计算允许的最大内容大小
+        max_content_size = max_bytes - header_size
+        content_size = len(content.encode("utf-8"))
+
+        # 如果超出，截断到安全大小
+        if content_size > max_content_size:
+            print(
+                f"警告：{format_type} 第 {i}/{total} 批次内容({content_size}字节) + 头部({header_size}字节) 超出限制({max_bytes}字节)，截断到 {max_content_size} 字节"
+            )
+            content = _truncate_to_bytes(content, max_content_size)
+
+        result.append(header + content)
+
+    return result
+
+
 def split_content_into_batches(
     report_data: Dict,
     format_type: str,
@@ -2932,7 +3048,7 @@ def split_content_into_batches(
     now = get_beijing_time()
 
     base_header = ""
-    if format_type == "wework":
+    if format_type in ("wework", "bark"):
         base_header = f"**总新闻数：** {total_titles}\n\n\n\n"
     elif format_type == "telegram":
         base_header = f"总新闻数： {total_titles}\n\n"
@@ -2945,9 +3061,11 @@ def split_content_into_batches(
         base_header += f"**时间：** {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         base_header += f"**类型：** 热点分析报告\n\n"
         base_header += "---\n\n"
+    elif format_type == "slack":
+        base_header = f"*总新闻数：* {total_titles}\n\n"
 
     base_footer = ""
-    if format_type == "wework":
+    if format_type in ("wework", "bark"):
         base_footer = f"\n\n\n> 更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
         if update_info:
             base_footer += f"\n> TrendRadar 发现新版本 **{update_info['remote_version']}**，当前 **{update_info['current_version']}**"
@@ -2967,10 +3085,14 @@ def split_content_into_batches(
         base_footer = f"\n\n> 更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
         if update_info:
             base_footer += f"\n> TrendRadar 发现新版本 **{update_info['remote_version']}**，当前 **{update_info['current_version']}**"
+    elif format_type == "slack":
+        base_footer = f"\n\n_更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}_"
+        if update_info:
+            base_footer += f"\n_TrendRadar 发现新版本 *{update_info['remote_version']}*，当前 *{update_info['current_version']}_"
 
     stats_header = ""
     if report_data["stats"]:
-        if format_type == "wework":
+        if format_type in ("wework", "bark"):
             stats_header = f"📊 **热点词汇统计**\n\n"
         elif format_type == "telegram":
             stats_header = f"📊 热点词汇统计\n\n"
@@ -2980,6 +3102,8 @@ def split_content_into_batches(
             stats_header = f"📊 **热点词汇统计**\n\n"
         elif format_type == "dingtalk":
             stats_header = f"📊 **热点词汇统计**\n\n"
+        elif format_type == "slack":
+            stats_header = f"📊 *热点词汇统计*\n\n"
 
     current_batch = base_header
     current_batch_has_content = False
@@ -3026,7 +3150,7 @@ def split_content_into_batches(
 
             # 构建词组标题
             word_header = ""
-            if format_type == "wework":
+            if format_type in ("wework", "bark"):
                 if count >= 10:
                     word_header = (
                         f"🔥 {sequence_display} **{word}** : **{count}** 条\n\n"
@@ -3073,12 +3197,23 @@ def split_content_into_batches(
                     )
                 else:
                     word_header = f"📌 {sequence_display} **{word}** : {count} 条\n\n"
+            elif format_type == "slack":
+                if count >= 10:
+                    word_header = (
+                        f"🔥 {sequence_display} *{word}* : *{count}* 条\n\n"
+                    )
+                elif count >= 5:
+                    word_header = (
+                        f"📈 {sequence_display} *{word}* : *{count}* 条\n\n"
+                    )
+                else:
+                    word_header = f"📌 {sequence_display} *{word}* : {count} 条\n\n"
 
             # 构建第一条新闻
             first_news_line = ""
             if stat["titles"]:
                 first_title_data = stat["titles"][0]
-                if format_type == "wework":
+                if format_type in ("wework", "bark"):
                     formatted_title = format_title_for_platform(
                         "wework", first_title_data, show_source=True
                     )
@@ -3097,6 +3232,10 @@ def split_content_into_batches(
                 elif format_type == "dingtalk":
                     formatted_title = format_title_for_platform(
                         "dingtalk", first_title_data, show_source=True
+                    )
+                elif format_type == "slack":
+                    formatted_title = format_title_for_platform(
+                        "slack", first_title_data, show_source=True
                     )
                 else:
                     formatted_title = f"{first_title_data['title']}"
@@ -3127,7 +3266,7 @@ def split_content_into_batches(
             # 处理剩余新闻条目
             for j in range(start_index, len(stat["titles"])):
                 title_data = stat["titles"][j]
-                if format_type == "wework":
+                if format_type in ("wework", "bark"):
                     formatted_title = format_title_for_platform(
                         "wework", title_data, show_source=True
                     )
@@ -3146,6 +3285,10 @@ def split_content_into_batches(
                 elif format_type == "dingtalk":
                     formatted_title = format_title_for_platform(
                         "dingtalk", title_data, show_source=True
+                    )
+                elif format_type == "slack":
+                    formatted_title = format_title_for_platform(
+                        "slack", title_data, show_source=True
                     )
                 else:
                     formatted_title = f"{title_data['title']}"
@@ -3170,7 +3313,7 @@ def split_content_into_batches(
             # 词组间分隔符
             if i < len(report_data["stats"]) - 1:
                 separator = ""
-                if format_type == "wework":
+                if format_type in ("wework", "bark"):
                     separator = f"\n\n\n\n"
                 elif format_type == "telegram":
                     separator = f"\n\n"
@@ -3180,6 +3323,8 @@ def split_content_into_batches(
                     separator = f"\n{CONFIG['FEISHU_MESSAGE_SEPARATOR']}\n\n"
                 elif format_type == "dingtalk":
                     separator = f"\n---\n\n"
+                elif format_type == "slack":
+                    separator = f"\n\n"
 
                 test_content = current_batch + separator
                 if (
@@ -3191,7 +3336,7 @@ def split_content_into_batches(
     # 处理新增新闻（同样确保来源标题+第一条新闻的原子性）
     if report_data["new_titles"]:
         new_header = ""
-        if format_type == "wework":
+        if format_type in ("wework", "bark"):
             new_header = f"\n\n\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
         elif format_type == "telegram":
             new_header = (
@@ -3203,6 +3348,8 @@ def split_content_into_batches(
             new_header = f"\n{CONFIG['FEISHU_MESSAGE_SEPARATOR']}\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
         elif format_type == "dingtalk":
             new_header = f"\n---\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
+        elif format_type == "slack":
+            new_header = f"\n\n🆕 *本次新增热点新闻* (共 {report_data['total_new_count']} 条)\n\n"
 
         test_content = current_batch + new_header
         if (
@@ -3220,7 +3367,7 @@ def split_content_into_batches(
         # 逐个处理新增新闻来源
         for source_data in report_data["new_titles"]:
             source_header = ""
-            if format_type == "wework":
+            if format_type in ("wework", "bark"):
                 source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
             elif format_type == "telegram":
                 source_header = f"{source_data['source_name']} ({len(source_data['titles'])} 条):\n\n"
@@ -3230,6 +3377,8 @@ def split_content_into_batches(
                 source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
             elif format_type == "dingtalk":
                 source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
+            elif format_type == "slack":
+                source_header = f"*{source_data['source_name']}* ({len(source_data['titles'])} 条):\n\n"
 
             # 构建第一条新增新闻
             first_news_line = ""
@@ -3238,7 +3387,7 @@ def split_content_into_batches(
                 title_data_copy = first_title_data.copy()
                 title_data_copy["is_new"] = False
 
-                if format_type == "wework":
+                if format_type in ("wework", "bark"):
                     formatted_title = format_title_for_platform(
                         "wework", title_data_copy, show_source=False
                     )
@@ -3253,6 +3402,10 @@ def split_content_into_batches(
                 elif format_type == "dingtalk":
                     formatted_title = format_title_for_platform(
                         "dingtalk", title_data_copy, show_source=False
+                    )
+                elif format_type == "slack":
+                    formatted_title = format_title_for_platform(
+                        "slack", title_data_copy, show_source=False
                     )
                 else:
                     formatted_title = f"{title_data_copy['title']}"
@@ -3298,6 +3451,10 @@ def split_content_into_batches(
                 elif format_type == "dingtalk":
                     formatted_title = format_title_for_platform(
                         "dingtalk", title_data_copy, show_source=False
+                    )
+                elif format_type == "slack":
+                    formatted_title = format_title_for_platform(
+                        "slack", title_data_copy, show_source=False
                     )
                 else:
                     formatted_title = f"{title_data_copy['title']}"
@@ -3533,13 +3690,19 @@ def send_to_feishu(
         proxies = {"http": proxy_url, "https": proxy_url}
 
     # 获取分批内容，使用飞书专用的批次大小
+    feishu_batch_size = CONFIG.get("FEISHU_BATCH_SIZE", 29000)
+    # 预留批次头部空间，避免添加头部后超限
+    header_reserve = _get_max_batch_header_size("feishu")
     batches = split_content_into_batches(
         report_data,
         "feishu",
         update_info,
-        max_bytes=CONFIG.get("FEISHU_BATCH_SIZE", 29000),
+        max_bytes=feishu_batch_size - header_reserve,
         mode=mode,
     )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, "feishu", feishu_batch_size)
 
     print(f"飞书消息分为 {len(batches)} 批次发送 [{report_type}]")
 
@@ -3549,18 +3712,6 @@ def send_to_feishu(
         print(
             f"发送飞书第 {i}/{len(batches)} 批次，大小：{batch_size} 字节 [{report_type}]"
         )
-
-        # 添加批次标识
-        if len(batches) > 1:
-            batch_header = f"**[第 {i}/{len(batches)} 批次]**\n\n"
-            # 将批次标识插入到适当位置（在统计标题之后）
-            if "📊 **热点词汇统计**" in batch_content:
-                batch_content = batch_content.replace(
-                    "📊 **热点词汇统计**\n\n", f"📊 **热点词汇统计** {batch_header}"
-                )
-            else:
-                # 如果没有统计标题，直接在开头添加
-                batch_content = batch_header + batch_content
 
         total_titles = sum(
             len(stat["titles"]) for stat in report_data["stats"] if stat["count"] > 0
@@ -3623,13 +3774,19 @@ def send_to_dingtalk(
         proxies = {"http": proxy_url, "https": proxy_url}
 
     # 获取分批内容，使用钉钉专用的批次大小
+    dingtalk_batch_size = CONFIG.get("DINGTALK_BATCH_SIZE", 20000)
+    # 预留批次头部空间，避免添加头部后超限
+    header_reserve = _get_max_batch_header_size("dingtalk")
     batches = split_content_into_batches(
         report_data,
         "dingtalk",
         update_info,
-        max_bytes=CONFIG.get("DINGTALK_BATCH_SIZE", 20000),
+        max_bytes=dingtalk_batch_size - header_reserve,
         mode=mode,
     )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, "dingtalk", dingtalk_batch_size)
 
     print(f"钉钉消息分为 {len(batches)} 批次发送 [{report_type}]")
 
@@ -3639,18 +3796,6 @@ def send_to_dingtalk(
         print(
             f"发送钉钉第 {i}/{len(batches)} 批次，大小：{batch_size} 字节 [{report_type}]"
         )
-
-        # 添加批次标识
-        if len(batches) > 1:
-            batch_header = f"**[第 {i}/{len(batches)} 批次]**\n\n"
-            # 将批次标识插入到适当位置（在标题之后）
-            if "📊 **热点词汇统计**" in batch_content:
-                batch_content = batch_content.replace(
-                    "📊 **热点词汇统计**\n\n", f"📊 **热点词汇统计** {batch_header}\n\n"
-                )
-            else:
-                # 如果没有统计标题，直接在开头添加
-                batch_content = batch_header + batch_content
 
         payload = {
             "msgtype": "markdown",
@@ -3756,21 +3901,23 @@ def send_to_wework(
     else:
         print(f"企业微信使用 markdown 格式（群机器人模式）[{report_type}]")
 
-    # 获取分批内容
-    batches = split_content_into_batches(report_data, "wework", update_info, mode=mode)
+    # text 模式使用 wework_text，markdown 模式使用 wework
+    header_format_type = "wework_text" if is_text_mode else "wework"
+
+    # 获取分批内容，预留批次头部空间
+    wework_batch_size = CONFIG.get("MESSAGE_BATCH_SIZE", 4000)
+    header_reserve = _get_max_batch_header_size(header_format_type)
+    batches = split_content_into_batches(
+        report_data, "wework", update_info, max_bytes=wework_batch_size - header_reserve, mode=mode
+    )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, header_format_type, wework_batch_size)
 
     print(f"企业微信消息分为 {len(batches)} 批次发送 [{report_type}]")
 
     # 逐批发送
     for i, batch_content in enumerate(batches, 1):
-        # 添加批次标识
-        if len(batches) > 1:
-            if is_text_mode:
-                batch_header = f"[第 {i}/{len(batches)} 批次]\n\n"
-            else:
-                batch_header = f"**[第 {i}/{len(batches)} 批次]**\n\n"
-            batch_content = batch_header + batch_content
-
         # 根据消息类型构建 payload
         if is_text_mode:
             # text 格式：去除 markdown 语法
@@ -3832,10 +3979,15 @@ def send_to_telegram(
     if proxy_url:
         proxies = {"http": proxy_url, "https": proxy_url}
 
-    # 获取分批内容
+    # 获取分批内容，预留批次头部空间
+    telegram_batch_size = CONFIG.get("MESSAGE_BATCH_SIZE", 4000)
+    header_reserve = _get_max_batch_header_size("telegram")
     batches = split_content_into_batches(
-        report_data, "telegram", update_info, mode=mode
+        report_data, "telegram", update_info, max_bytes=telegram_batch_size - header_reserve, mode=mode
     )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, "telegram", telegram_batch_size)
 
     print(f"Telegram消息分为 {len(batches)} 批次发送 [{report_type}]")
 
@@ -3845,11 +3997,6 @@ def send_to_telegram(
         print(
             f"发送Telegram第 {i}/{len(batches)} 批次，大小：{batch_size} 字节 [{report_type}]"
         )
-
-        # 添加批次标识
-        if len(batches) > 1:
-            batch_header = f"<b>[第 {i}/{len(batches)} 批次]</b>\n\n"
-            batch_content = batch_header + batch_content
 
         payload = {
             "chat_id": chat_id,
@@ -4043,10 +4190,10 @@ def send_to_ntfy(
         "当日汇总": "Daily Summary",
         "当前榜单汇总": "Current Ranking",
         "增量更新": "Incremental Update",
-        "实时增量": "Realtime Incremental", 
-        "实时当前榜单": "Realtime Current Ranking",  
+        "实时增量": "Realtime Incremental",
+        "实时当前榜单": "Realtime Current Ranking",
     }
-    report_type_en = report_type_en_map.get(report_type, "News Report") 
+    report_type_en = report_type_en_map.get(report_type, "News Report")
 
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
@@ -4058,7 +4205,7 @@ def send_to_ntfy(
 
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    
+
     # 构建完整URL，确保格式正确
     base_url = server_url.rstrip("/")
     if not base_url.startswith(("http://", "https://")):
@@ -4069,10 +4216,15 @@ def send_to_ntfy(
     if proxy_url:
         proxies = {"http": proxy_url, "https": proxy_url}
 
-    # 获取分批内容，使用ntfy专用的4KB限制
+    # 获取分批内容，使用ntfy专用的4KB限制，预留批次头部空间
+    ntfy_batch_size = 3800
+    header_reserve = _get_max_batch_header_size("ntfy")
     batches = split_content_into_batches(
-        report_data, "ntfy", update_info, max_bytes=3800, mode=mode
+        report_data, "ntfy", update_info, max_bytes=ntfy_batch_size - header_reserve, mode=mode
     )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, "ntfy", ntfy_batch_size)
 
     total_batches = len(batches)
     print(f"ntfy消息分为 {total_batches} 批次发送 [{report_type}]")
@@ -4080,7 +4232,7 @@ def send_to_ntfy(
     # 反转批次顺序，使得在ntfy客户端显示时顺序正确
     # ntfy显示最新消息在上面，所以我们从最后一批开始推送
     reversed_batches = list(reversed(batches))
-    
+
     print(f"ntfy将按反向顺序推送（最后批次先推送），确保客户端显示顺序正确")
 
     # 逐批发送（反向顺序）
@@ -4088,7 +4240,7 @@ def send_to_ntfy(
     for idx, batch_content in enumerate(reversed_batches, 1):
         # 计算正确的批次编号（用户视角的编号）
         actual_batch_num = total_batches - idx + 1
-        
+
         batch_size = len(batch_content.encode("utf-8"))
         print(
             f"发送ntfy第 {actual_batch_num}/{total_batches} 批次（推送顺序: {idx}/{total_batches}），大小：{batch_size} 字节 [{report_type}]"
@@ -4098,11 +4250,9 @@ def send_to_ntfy(
         if batch_size > 4096:
             print(f"警告：ntfy第 {actual_batch_num} 批次消息过大（{batch_size} 字节），可能被拒绝")
 
-        # 添加批次标识（使用正确的批次编号）
+        # 更新 headers 的批次标识
         current_headers = headers.copy()
         if total_batches > 1:
-            batch_header = f"**[第 {actual_batch_num}/{total_batches} 批次]**\n\n"
-            batch_content = batch_header + batch_content
             current_headers["Title"] = (
                 f"{report_type_en} ({actual_batch_num}/{total_batches})"
             )
@@ -4185,15 +4335,34 @@ def send_to_bark(
     proxy_url: Optional[str] = None,
     mode: str = "daily",
 ) -> bool:
-    """发送到Bark（支持分批发送，使用纯文本格式）"""
+    """发送到Bark（支持分批发送，使用 markdown 格式）"""
     proxies = None
     if proxy_url:
         proxies = {"http": proxy_url, "https": proxy_url}
 
-    # 获取分批内容（Bark 限制为 3600 字节以避免 413 错误）
+    # 解析 Bark URL，提取 device_key 和 API 端点
+    # Bark URL 格式: https://api.day.app/device_key 或 https://bark.day.app/device_key
+    from urllib.parse import urlparse
+
+    parsed_url = urlparse(bark_url)
+    device_key = parsed_url.path.strip('/').split('/')[0] if parsed_url.path else None
+
+    if not device_key:
+        print(f"Bark URL 格式错误，无法提取 device_key: {bark_url}")
+        return False
+
+    # 构建正确的 API 端点
+    api_endpoint = f"{parsed_url.scheme}://{parsed_url.netloc}/push"
+
+    # 获取分批内容（Bark 限制为 3600 字节以避免 413 错误），预留批次头部空间
+    bark_batch_size = CONFIG["BARK_BATCH_SIZE"]
+    header_reserve = _get_max_batch_header_size("bark")
     batches = split_content_into_batches(
-        report_data, "wework", update_info, max_bytes=CONFIG["BARK_BATCH_SIZE"], mode=mode
+        report_data, "bark", update_info, max_bytes=bark_batch_size - header_reserve, mode=mode
     )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, "bark", bark_batch_size)
 
     total_batches = len(batches)
     print(f"Bark消息分为 {total_batches} 批次发送 [{report_type}]")
@@ -4210,15 +4379,7 @@ def send_to_bark(
         # 计算正确的批次编号（用户视角的编号）
         actual_batch_num = total_batches - idx + 1
 
-        # 添加批次标识（使用正确的批次编号）
-        if total_batches > 1:
-            batch_header = f"[第 {actual_batch_num}/{total_batches} 批次]\n\n"
-            batch_content = batch_header + batch_content
-
-        # 清理 markdown 语法（Bark 不支持 markdown）
-        plain_content = strip_markdown(batch_content)
-
-        batch_size = len(plain_content.encode("utf-8"))
+        batch_size = len(batch_content.encode("utf-8"))
         print(
             f"发送Bark第 {actual_batch_num}/{total_batches} 批次（推送顺序: {idx}/{total_batches}），大小：{batch_size} 字节 [{report_type}]"
         )
@@ -4232,14 +4393,16 @@ def send_to_bark(
         # 构建JSON payload
         payload = {
             "title": report_type,
-            "body": plain_content,
+            "markdown": batch_content,
+            "device_key": device_key,
             "sound": "default",
             "group": "TrendRadar",
+            "action": "none",  # 点击推送跳到 APP 不弹出弹框,方便阅读
         }
 
         try:
             response = requests.post(
-                bark_url,
+                api_endpoint,
                 json=payload,
                 proxies=proxies,
                 timeout=30,
@@ -4319,20 +4482,20 @@ def send_to_slack(
     if proxy_url:
         proxies = {"http": proxy_url, "https": proxy_url}
 
-    # 获取分批内容（使用 Slack 批次大小）
+    # 获取分批内容（使用 Slack 批次大小），预留批次头部空间
+    slack_batch_size = CONFIG["SLACK_BATCH_SIZE"]
+    header_reserve = _get_max_batch_header_size("slack")
     batches = split_content_into_batches(
-        report_data, "wework", update_info, max_bytes=CONFIG["SLACK_BATCH_SIZE"], mode=mode
+        report_data, "slack", update_info, max_bytes=slack_batch_size - header_reserve, mode=mode
     )
+
+    # 统一添加批次头部（已预留空间，不会超限）
+    batches = add_batch_headers(batches, "slack", slack_batch_size)
 
     print(f"Slack消息分为 {len(batches)} 批次发送 [{report_type}]")
 
     # 逐批发送
     for i, batch_content in enumerate(batches, 1):
-        # 添加批次标识
-        if len(batches) > 1:
-            batch_header = f"*[第 {i}/{len(batches)} 批次]*\n\n"
-            batch_content = batch_header + batch_content
-
         # 转换 Markdown 到 mrkdwn 格式
         mrkdwn_content = convert_markdown_to_mrkdwn(batch_content)
 
